@@ -9,16 +9,6 @@ const constants = @import("constants.zig");
 const dialog = @import("dialog.zig");
 const file_io_utils = @import("file_io_utils.zig");
 
-fn classifyFile(path: []const u8) data_types.MediaType {
-    const ext = std.fs.path.extension(path);
-    for (constants.IMAGE_EXTENSIONS) |ie| {
-        if (std.mem.eql(u8, ext, ie)) return .image;
-    }
-    for (constants.VIDEO_EXTENSIONS) |ve| {
-        if (std.mem.eql(u8, ext, ve)) return .video;
-    }
-    return .unknown;
-}
 
 fn update(state: *data_types.AppState) void {
     // Handle file drop
@@ -35,7 +25,7 @@ fn update(state: *data_types.AppState) void {
             state.video_state = null;
 
             state.file_path = path;
-            state.media_type = classifyFile(path);
+            state.media_type = file_io_utils.classifyFile(path);
 
             switch (state.media_type) {
                 .image => state.image_state = image_viewer.load(path),
@@ -130,6 +120,13 @@ fn mainLoop(state: *data_types.AppState) void {
 }
 
 pub fn main() !void {
+    // Refactor App
+    // If no file path is provided, then open in empty state
+    // if file path is provided, then check if it's a directory
+    // if it's a single file, then load it
+    // if it's a directory, then scan for media files and load the first one
+    //   Enable right and left (or maybe vim bindings h and l) to cycle through media files
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -148,7 +145,7 @@ pub fn main() !void {
     var state = data_types.AppState{
         .allocator = allocator,
         .file_path = file_path,
-        .media_type = if (file_path) |p| classifyFile(p) else .unknown,
+        .media_type = if (file_path) |p| file_io_utils.classifyFile(p) else .unknown,
     };
     if (file_path) |p| {
         try initMediaFromPath(&state, p, allocator);

@@ -1,4 +1,6 @@
 const std = @import("std");
+const constants = @import("constants.zig");
+const data_types = @import("data_types.zig");
 
 pub fn isPathDirectory(path: []const u8) !bool {
     var file = try std.fs.openFileAbsolute(path, .{});
@@ -32,4 +34,16 @@ pub fn listAllFilesInDirectory(path: []const u8, allocator: std.mem.Allocator) !
     var files = std.ArrayList(std.fs.Dir.Entry).init(allocator);
     try files.appendSlice(try dir.readDirAlloc(allocator, .{}));
     return files.toOwnedSlice();
+}
+
+
+pub fn classifyFile(path: []const u8) data_types.MediaType {
+    const ext = std.fs.path.extension(path);
+    for (constants.IMAGE_EXTENSIONS) |ie| {
+        if (std.mem.eql(u8, ext, ie)) return .image;
+    }
+    for (constants.VIDEO_EXTENSIONS) |ve| {
+        if (std.mem.eql(u8, ext, ve)) return .video;
+    }
+    return .unknown;
 }
