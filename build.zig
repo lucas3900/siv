@@ -42,14 +42,6 @@ pub fn build(b: *std.Build) void {
     // exe.root_module.linkSystemLibrary("libswresample", .{});
     // exe.root_module.link_libc = true;
 
-    // --- tinyfiledialogs ---
-    exe.addCSourceFile(.{
-        .file = b.path("lib/tinyfiledialogs.c"),
-        .flags = &.{},
-    });
-    exe.addIncludePath(b.path("lib"));
-    exe.root_module.link_libc = true;
-
     b.installArtifact(exe);
 
     // --- Run step ---

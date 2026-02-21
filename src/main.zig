@@ -10,7 +10,10 @@ const dialog = @import("dialog.zig");
 const file_io_utils = @import("file_io_utils.zig");
 
 
-fn update(state: *data_types.AppState) void {
+fn update(
+    state: *data_types.AppState,
+    allocator: std.mem.Allocator,
+) void {
     // Handle file drop
     if (rl.isFileDropped()) {
         const dropped = rl.loadDroppedFiles();
@@ -39,17 +42,20 @@ fn update(state: *data_types.AppState) void {
         switch (action) {
             // for now we just catch the errors. later let's bubble them up
             .open_file => {
-                if (dialog.openFile()) |path| {
+                if (dialog.openFile(allocator) catch null) |path| {
+                    defer allocator.free(path);
                     std.log.info("Opening file: {s}", .{path});
                     // load the file using your existing logic
                 }
             },
             .open_folder => {
-                if (dialog.openFolder()) |path| {
+                if (dialog.openFolder(allocator) catch null) |path| {
+                    defer allocator.free(path);
                     std.log.info("Opening folder: {s}", .{path});
                     // scan directory for media files
                 }
             }
+
         }
     }
 
@@ -84,7 +90,7 @@ fn initMediaFromPath(
     }
 }
 
-fn mainLoop(state: *data_types.AppState) void {
+fn mainLoop(state: *data_types.AppState, allocator: std.mem.Allocator) void {
     var key_pressed: rl.KeyboardKey = .null;
 
     while (!rl.windowShouldClose()) {
@@ -92,7 +98,7 @@ fn mainLoop(state: *data_types.AppState) void {
         if (key_pressed != .null) {
             std.log.info("Key pressed: {any}", .{key_pressed});
         }
-        update(state);
+        update(state, allocator);
 
         rl.beginDrawing();
         defer rl.endDrawing();
@@ -151,7 +157,7 @@ pub fn main() !void {
         try initMediaFromPath(&state, p, allocator);
     }
 
-    mainLoop(&state);
+    mainLoop(&state, allocator);
 
     if (state.image_state) |*img| image_viewer.unload(img);
     if (state.video_state) |*vid| video_player.close(vid);

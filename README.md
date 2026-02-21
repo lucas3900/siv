@@ -11,7 +11,5 @@ sudo pacman -S ffmpeg
 
 ### Run
 zig build run
-zig build run -- ~/photos/test.png
 
-## Attributions
-1. tinyfd: https://sourceforge.net/projects/tinyfiledialogs/
+zig build run -- ~/photos/test.png
