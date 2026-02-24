@@ -43,7 +43,7 @@ pub const VideoState = struct {
     height: i32,
 
     // Playback
-    playing: bool = true,
+    playing: bool = false,
     finished: bool = false,
     frame_time: f64 = 0.0,
     time_base: f64 = 0.0,
@@ -53,7 +53,9 @@ pub const VideoState = struct {
 
 pub const AppState = struct {
     allocator: std.mem.Allocator,
-    file_path: ?[]const u8 = null,
+    media_files: std.ArrayList([]const u8) = .empty,
+    current_file_index: usize = 0,
+    update_media_state: bool = true,
     media_type: MediaType = .unknown,
     image_state: ?ImageState = null,
     video_state: ?VideoState = null,

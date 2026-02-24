@@ -9,27 +9,31 @@ const constants = @import("constants.zig");
 const dialog = @import("dialog.zig");
 const file_io_utils = @import("file_io_utils.zig");
 
-fn freeMediaFileList(files: *std.ArrayList([]const u8), allocator: std.mem.Allocator) void {
-    for (files.items) |file_path| {
-        allocator.free(file_path);
+fn freeMediaFileList(state: *data_types.AppState) void {
+    for (state.media_files.items) |file_path| {
+        state.allocator.free(file_path);
     }
-    files.deinit(allocator);
-    files.* = .empty;
+    state.media_files.deinit(state.allocator);
+    state.media_files = .empty;
 }
 
 fn setMediaState(
     state: *data_types.AppState,
-    allocator: std.mem.Allocator,
     media_path: []const u8
 ) !void {
     std.log.debug("Setting media state for {s}", .{media_path});
     const abs_path = try file_io_utils.convertPathToAbsolute(
         media_path,
-        allocator
+        state.allocator
     );
-    defer allocator.free(abs_path);
+    defer state.allocator.free(abs_path);
     std.log.debug("Absolute path: {s}", .{abs_path});
     state.media_type = file_io_utils.classifyFile(abs_path);
+
+    if (state.image_state) |*img| image_viewer.unload(img);
+    if (state.video_state) |*vid| video_player.close(vid);
+    state.image_state = null;
+    state.video_state = null;
 
     switch (state.media_type) {
         .image => state.image_state = image_viewer.load(abs_path),
@@ -38,139 +42,124 @@ fn setMediaState(
     }
 }
 
-fn setMediaFiles(
-    allocator: std.mem.Allocator,
-    media_path: []const u8,
-    media_files: *std.ArrayList([]const u8)
-) !void {
-    freeMediaFileList(media_files, allocator);
+fn setMediaFiles(state: *data_types.AppState, media_path: []const u8) !void {
+    freeMediaFileList(state);
     const abs_path: []const u8 = try file_io_utils.convertPathToAbsolute(
         media_path,
-        allocator
+        state.allocator
     );
-    defer allocator.free(abs_path);
+    defer state.allocator.free(abs_path);
     const is_dir: bool = try file_io_utils.isPathDirectory(abs_path);
     if (is_dir) {
-        const files = try file_io_utils.getAllMediaFilesInDirectory(abs_path, allocator);
-        media_files.* = files;
+        const files = try file_io_utils.getAllMediaFilesInDirectory(abs_path, state.allocator);
+        state.media_files = files;
     } else {
         // just assign as singleton array. do not append
-        media_files.* = .empty;
-        const duped = try allocator.dupe(u8, abs_path);
-        try media_files.append(allocator, duped);
+        state.media_files = .empty;
+        const duped = try state.allocator.dupe(u8, abs_path);
+        try state.media_files.append(state.allocator, duped);
+    }
+}
+
+fn handleKeyBoardInput(state: *data_types.AppState) void {
+    const key_pressed: rl.KeyboardKey = rl.getKeyPressed();
+    if (key_pressed != .null) {
+        std.log.info("Key pressed: {any}", .{key_pressed});
+        // no wrap around
+        if (key_pressed == .left) {
+            state.current_file_index = if (state.current_file_index == 0) 0 else state.current_file_index - 1;
+            state.update_media_state = true;
+        } else if (key_pressed == .right) {
+            state.current_file_index = @min(state.current_file_index + 1, state.media_files.items.len - 1);
+            state.update_media_state = true;
+        }
+    }
+}
+
+fn handleFileDropping(state: *data_types.AppState) !void {
+    if (rl.isFileDropped()) {
+        const dropped = rl.loadDroppedFiles();
+        defer rl.unloadDroppedFiles(dropped);
+
+        if (dropped.count > 0) {
+            const path = std.mem.span(dropped.paths[0]);
+            try setMediaFiles(state, path);
+            state.update_media_state = true;
+        }
+    }
+}
+
+fn handleRenderingMedia(state: *data_types.AppState) void {
+    if (state.video_state) |*vid| {
+        video_player.update(vid);
+    }
+
+    rl.beginDrawing();
+    defer rl.endDrawing();
+
+    rl.clearBackground(rl.Color.init(30, 30, 30, 255));
+
+    switch (state.media_type) {
+        .image => {
+            if (state.image_state) |*img| {
+                image_viewer.draw(img);
+            }
+        },
+        .video => {
+            if (state.video_state) |*vid| {
+                video_player.draw(vid);
+            }
+        },
+        .unknown => {
+            ui.drawDropPrompt();
+        }
+    }
+
+    ui.drawHUD(state);
+}
+
+fn handleFilePicking(state: *data_types.AppState) !void {
+    if (ui.drawMenuBar()) |action| {
+        switch (action) {
+            // for now we just catch the errors. later let's bubble them up
+            .open_file => {
+                if (dialog.openFile(state.allocator) catch null) |path| {
+                    defer state.allocator.free(path);
+                    std.log.info("Opening file: {s}", .{path});
+                    try setMediaFiles(state, path);
+                }
+            },
+            .open_folder => {
+                if (dialog.openFolder(state.allocator) catch null) |path| {
+                    defer state.allocator.free(path);
+                    std.log.info("Opening folder: {s}", .{path});
+                    try setMediaFiles(state, path);
+                }
+            }
+        }
     }
 }
 
 fn mainLoop(
     state: *data_types.AppState,
-    allocator: std.mem.Allocator,
     file_path_arg: ?[]const u8
 ) !void {
-    var media_files: std.ArrayList([]const u8) = .empty;
-    defer freeMediaFileList(&media_files, allocator);
-    var current_file_index: usize = 0;
-    var update_media_state: bool = true;
-
+    defer freeMediaFileList(state);
     if (file_path_arg) |path| {
-        try setMediaFiles(allocator, path, &media_files);
+        try setMediaFiles(state, path);
     }
-
-    var key_pressed: rl.KeyboardKey = .null;
-
     while (!rl.windowShouldClose()) {
-        if (media_files.items.len > 0 and update_media_state) {
-            std.log.debug("Loading index: {any}", .{current_file_index});
-            std.log.debug("Num files: {any}", .{media_files.items.len});
+        if (state.media_files.items.len > 0 and state.update_media_state) {
             try setMediaState(
                 state,
-                allocator,
-                media_files.items[current_file_index]
+                state.media_files.items[state.current_file_index]
             );
-            update_media_state = false;
+            state.update_media_state = false;
         }
-        key_pressed = rl.getKeyPressed();
-
-        // TODO: move
-        if (key_pressed != .null) {
-            std.log.info("Key pressed: {any}", .{key_pressed});
-            if (key_pressed == .left) {
-                current_file_index = (current_file_index - 1) % media_files.items.len;
-                update_media_state = true;
-            } else if (key_pressed == .right) {
-                current_file_index = (current_file_index + 1) % media_files.items.len;
-                update_media_state = true;
-            }
-        }
-        if (rl.isFileDropped()) {
-            const dropped = rl.loadDroppedFiles();
-            defer rl.unloadDroppedFiles(dropped);
-
-            if (dropped.count > 0) {
-                const path = std.mem.span(dropped.paths[0]);
-                // Clean up previous state
-                if (state.image_state) |*img| image_viewer.unload(img);
-                if (state.video_state) |*vid| video_player.close(vid);
-                state.image_state = null;
-                state.video_state = null;
-
-                state.file_path = path;
-                state.media_type = file_io_utils.classifyFile(path);
-
-                switch (state.media_type) {
-                    .image => state.image_state = image_viewer.load(path),
-                    .video => state.video_state = video_player.open(path),
-                    .unknown => std.log.warn("Unknown file type: {s}", .{path}),
-                }
-            }
-        }
-
-        if (ui.drawMenuBar()) |action| {
-            switch (action) {
-                // for now we just catch the errors. later let's bubble them up
-                .open_file => {
-                    if (dialog.openFile(allocator) catch null) |path| {
-                        defer allocator.free(path);
-                        std.log.info("Opening file: {s}", .{path});
-                        // load the file using your existing logic
-                    }
-                },
-                .open_folder => {
-                    if (dialog.openFolder(allocator) catch null) |path| {
-                        defer allocator.free(path);
-                        std.log.info("Opening folder: {s}", .{path});
-                        // scan directory for media files
-                    }
-                }
-
-            }
-        }
-
-        if (state.video_state) |*vid| {
-            video_player.update(vid);
-        }
-
-        rl.beginDrawing();
-        defer rl.endDrawing();
-
-        rl.clearBackground(rl.Color.init(30, 30, 30, 255));
-
-        switch (state.media_type) {
-            .image => {
-                if (state.image_state) |*img| {
-                    image_viewer.draw(img);
-                }
-            },
-            .video => {
-                if (state.video_state) |*vid| {
-                    video_player.draw(vid);
-                }
-            },
-            .unknown => {
-                ui.drawDropPrompt();
-            }
-        }
-
-        ui.drawHUD(state);
+        handleKeyBoardInput(state);
+        try handleFileDropping(state);
+        handleRenderingMedia(state);
+        try handleFilePicking(state);
     }
 }
 
@@ -191,14 +180,12 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
     const file_path: ?[]const u8 = if (args.len > 1) args[1] else null;
     var state = data_types.AppState{
-        .allocator = allocator,
-        .file_path = file_path,
-        .media_type = if (file_path) |p| file_io_utils.classifyFile(p) else .unknown,
+        .allocator = allocator
     };
     defer {
         if (state.image_state) |*img| image_viewer.unload(img);
         if (state.video_state) |*vid| video_player.close(vid);
     }
 
-    try mainLoop(&state, allocator, file_path);
+    try mainLoop(&state, file_path);
 }

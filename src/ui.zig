@@ -34,8 +34,8 @@ pub fn drawDropPrompt() void {
 
 pub fn drawHUD(state: *const data_types.AppState) void {
     // Show filename in bottom right
-    if (state.file_path) |path| {
-        const basename = std.fs.path.basename(path);
+    if (state.media_files.items.len > 0) {
+        const basename = std.fs.path.basename(state.media_files.items[state.current_file_index]);
         const c_name: [:0]const u8 = std.mem.span(@as([*:0]const u8, @ptrCast(basename.ptr)));
         rl.drawText(
             c_name,
