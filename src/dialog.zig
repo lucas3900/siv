@@ -10,7 +10,7 @@ const video_filters= [_][*:0]const u8{
     "*.mov", "*.flv",
 };
 
-// Zenity implementaiton
+// Zenity implementaiton. it's slow an sucks
 
 pub fn openFile(allocator: std.mem.Allocator) !?[]const u8 {
     const result = try std.process.Child.run(.{
