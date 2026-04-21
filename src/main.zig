@@ -6,7 +6,7 @@ const video_player = @import("video_player.zig");
 const ui = @import("ui.zig");
 const data_types = @import("data_types.zig");
 const constants = @import("constants.zig");
-const dialog = @import("dialog.zig");
+const file_picker = @import("file_picker.zig");
 const file_io_utils = @import("file_io_utils.zig");
 
 fn freeMediaFileList(state: *data_types.AppState) void {
@@ -123,14 +123,14 @@ fn handleFilePicking(state: *data_types.AppState) !void {
         switch (action) {
             // for now we just catch the errors. later let's bubble them up
             .open_file => {
-                if (dialog.openFile(state.allocator) catch null) |path| {
+                if (file_picker.openFile(state.allocator) catch null) |path| {
                     defer state.allocator.free(path);
                     std.log.info("Opening file: {s}", .{path});
                     try setMediaFiles(state, path);
                 }
             },
             .open_folder => {
-                if (dialog.openFolder(state.allocator) catch null) |path| {
+                if (file_picker.openFolder(state.allocator) catch null) |path| {
                     defer state.allocator.free(path);
                     std.log.info("Opening folder: {s}", .{path});
                     try setMediaFiles(state, path);
